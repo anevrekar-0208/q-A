@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>RAG Q&A App</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 2em; background: #f5f5f5; }
+    input[type="text"] { width: 80%; padding: 10px; font-size: 16px; }
+    input[type="submit"] { padding: 10px 20px; font-size: 16px; }
+    #answer { margin-top: 20px; background: white; padding: 15px; border-radius: 5px; }
+  </style>
+</head>
+<body>
+  <h1>Ask a Question 📚</h1>
+  <form action="/ask" method="post">
+    <input type="text" name="question" placeholder="Type your question here..." required />
+    <input type="submit" value="Ask" />
+  </form>
+
+  {% if answer %}
+    <div id="answer">
+      <h3>Answer:</h3>
+      <p>{{ answer }}</p>
+    </div>
+  {% endif %}
+</body>
+</html>

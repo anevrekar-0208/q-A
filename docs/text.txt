@@ -1,0 +1,7 @@
+Renewable energy comes from natural sources that are constantly replenished and are sustainable over the long term. Examples include sunlight, wind, rain, tides, waves, and geothermal heat. Unlike fossil fuels such as coal and oil, renewable energy sources produce little or no greenhouse gas emissions, making them essential for combating climate change.
+
+Solar power uses photovoltaic cells to convert sunlight directly into electricity. Wind power harnesses air flow using large turbines to generate energy without combustion. Hydropower captures energy from flowing water, often through dams or river turbines. Geothermal energy taps into the Earth’s internal heat to produce electricity and provide heating.
+
+Transitioning to renewable energy is crucial for reducing global carbon emissions, decreasing air pollution, and promoting sustainable development. Many countries and companies are investing heavily in renewable technologies to meet increasing energy demands while protecting the environment and creating new economic opportunities in green industries.
+
+Despite the benefits, challenges remain, including energy storage, grid integration, and initial costs. Innovations in battery technology and smart grids are helping to overcome these barriers, making renewable energy more reliable and accessible worldwide.

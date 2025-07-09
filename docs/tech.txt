@@ -1,0 +1,1 @@
+Artificial Intelligence (AI) refers to the simulation of human intelligence in machines. Modern AI is used in various applications including natural language processing, image recognition, and autonomous vehicles. Machine learning is a core subset of AI focused on data-driven learning.
