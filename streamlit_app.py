@@ -1,54 +1,80 @@
-import streamlit as st
-from rag_chain import add_documents_to_vectorstore, ask_with_context, load_existing_vectorstore
 import os
-os.environ["STREAMLIT_SERVER_PORT"] = os.environ.get("PORT", "8501")
-
-
-st.set_page_config(page_title="📄 Document Q&A Chatbot")
+import streamlit as st
+from rag_chain import (
+    load_and_split_file,
+    add_documents_to_vectorstore,
+    load_existing_vectorstore,
+    create_qa_chain,
+    VECTORSTORE_DIR,
+    DOCS_DIR,
+)
 
 st.title("📄 Document Q&A Chatbot")
-st.markdown("Upload PDF or TXT files to add to the knowledge base, then ask questions!")
+st.write("Upload PDF or TXT files and ask questions about documents in the `docs/` folder!")
 
-# === Load existing vectorstore once ===
-if "vectorstore_loaded" not in st.session_state:
-    st.session_state.vectorstore_loaded = load_existing_vectorstore() is not None
-    st.session_state.docs_added = False
+# Show files in docs folder
+files_in_docs = [f for f in os.listdir(DOCS_DIR) if f.lower().endswith((".pdf", ".txt"))]
 
-# === File upload section ===
+if files_in_docs:
+    st.write("### Documents in `docs/` folder:")
+    for f in files_in_docs:
+        st.write(f"- {f}")
+else:
+    st.info("No documents found in the `docs/` folder.")
+
+# Upload files
 uploaded_files = st.file_uploader(
-    "Upload a PDF or TXT file", type=["pdf", "txt"], accept_multiple_files=True
+    "Upload PDF or TXT files", type=["pdf", "txt"], accept_multiple_files=True
 )
 
 if uploaded_files:
-    for file in uploaded_files:
-        add_documents_to_vectorstore(file)
-    st.session_state.vectorstore_loaded = True
-    st.session_state.docs_added = True
-    st.success("✅ Documents added to knowledge base!")
+    for uploaded_file in uploaded_files:
+        save_path = os.path.join(DOCS_DIR, uploaded_file.name)
+        with open(save_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+    st.success(f"✅ Saved {len(uploaded_files)} file(s) to `docs/` folder.")
 
-# === Show filenames from metadata ===
-if st.session_state.vectorstore_loaded:
-    vectorstore = load_existing_vectorstore()
-    try:
-        metadatas = vectorstore.get()["metadatas"]
-        unique_sources = sorted(set(d.get("source", "Unknown") for d in metadatas))
+    if st.button("🔄 Reindex documents to update vectorstore"):
+        with st.spinner("Reindexing documents..."):
+            docs = []
+            for filename in os.listdir(DOCS_DIR):
+                if filename.lower().endswith((".pdf", ".txt")):
+                    try:
+                        docs.extend(load_and_split_file(os.path.join(DOCS_DIR, filename)))
+                    except Exception as e:
+                        st.error(f"Failed loading {filename}: {e}")
 
-        st.markdown("### 🗂️ Preloaded Documents:")
-        for src in unique_sources:
-            st.markdown(f"- `{src}`")
-    except:
-        st.warning("⚠️ Could not load document names.")
+            if docs:
+                try:
+                    vectorstore = add_documents_to_vectorstore(docs, VECTORSTORE_DIR)
+                    st.session_state.vectorstore = vectorstore
+                    st.success("✅ Vectorstore updated with new documents!")
+                    st.experimental_rerun()
+                except Exception as e:
+                    st.error(f"Failed to create vectorstore: {e}")
+            else:
+                st.warning("No documents loaded for indexing.")
 
-# === Ask questions section ===
-if st.session_state.vectorstore_loaded:
-    question = st.text_input("🔍 Ask a question about the documents:")
-    if question:
+# Load vectorstore once on app start (or from session state)
+if "vectorstore" not in st.session_state:
+    vectorstore = load_existing_vectorstore(VECTORSTORE_DIR)
+    if vectorstore:
+        st.session_state.vectorstore = vectorstore
+
+# QA interface always visible
+if "vectorstore" in st.session_state:
+    qa_chain = create_qa_chain(st.session_state.vectorstore)
+    st.write("### Ask a question about the documents:")
+    query = st.text_input("Your question:")
+
+    if query:
         with st.spinner("Thinking..."):
             try:
-                answer = ask_with_context(question)
-                st.markdown("**🧠 Answer:**")
-                st.write(answer)
+                answer = qa_chain.run(query)
+                st.markdown(f"**Answer:** {answer}")
             except Exception as e:
-                st.error(f"❌ Error while generating answer:\n\n{e}")
+                st.error(f"Error: {e}")
 else:
-    st.info("ℹ️ Upload a document to start or make sure `vectorstore/` exists.")
+    st.write("### Ask a question about the documents:")
+    st.info("⚠️ No indexed documents found. Please upload files and click reindex to enable Q&A.")
+    st.text_input("Your question:", disabled=True)

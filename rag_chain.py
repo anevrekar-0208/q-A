@@ -1,78 +1,85 @@
-from dotenv import load_dotenv
-load_dotenv()
-
 import os
-import tempfile
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
 from langchain.text_splitter import CharacterTextSplitter
+from langchain_community.vectorstores import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.chains import RetrievalQA
-from langchain.schema import Document
-from langchain.chat_models import ChatOpenAI
+from langchain_community.chat_models import ChatOpenAI
 
-# === Embeddings using HuggingFace (FREE + no API key required) ===
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
+# ✅ API keys
+HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACEHUB_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# === Language Model using OpenRouter ===
-llm = ChatOpenAI(
-    model_name="mistralai/mistral-small-3.2-24b-instruct:free",
-    openai_api_key=os.getenv("OPENROUTER_API_KEY"),
-    openai_api_base="https://openrouter.ai/api/v1",
-)
-
-# === Vectorstore settings ===
+# ✅ Model configuration
+EMBEDDING_MODEL_NAME = "thenlper/gte-small"
+LLM_MODEL = "mistralai/mistral-small-3.2-24b-instruct:free"
 VECTORSTORE_DIR = "vectorstore"
-text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+DOCS_DIR = "docs"
 
-# === Load documents from disk ===
-def load_file(file_path: str) -> list[Document]:
-    if file_path.lower().endswith(".pdf"):
+# Set HuggingFace API token as environment variable
+os.environ["HUGGINGFACEHUB_API_TOKEN"] = HUGGINGFACE_API_KEY
+
+# ✅ Use recommended HuggingFaceEmbeddings class
+def get_embeddings():
+    return HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
+
+def load_and_split_file(file_path):
+    if file_path.endswith(".pdf"):
         loader = PyPDFLoader(file_path)
+    elif file_path.endswith(".txt"):
+        loader = TextLoader(file_path)
     else:
-        loader = TextLoader(file_path, encoding="utf8")
-    return loader.load()
+        raise ValueError("Unsupported file format.")
 
-# === Add uploaded file to vectorstore ===
-def add_documents_to_vectorstore(file) -> None:
-    suffix = ""
-    filename = "uploaded_file"
-    if hasattr(file, "name") and file.name:
-        suffix = os.path.splitext(file.name)[1].lower()
-        filename = file.name
+    docs = loader.load()
+    splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    split_docs = splitter.split_documents(docs)
+    return [doc for doc in split_docs if doc.page_content.strip()]
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(file.read())
-        tmp_path = tmp.name
+def load_docs_from_folder():
+    all_docs = []
+    for filename in os.listdir(DOCS_DIR):
+        path = os.path.join(DOCS_DIR, filename)
+        if path.endswith(".pdf") or path.endswith(".txt"):
+            try:
+                docs = load_and_split_file(path)
+                all_docs.extend(docs)
+            except Exception as e:
+                print(f"Error loading {filename}: {e}")
+    return all_docs
 
-    docs = load_file(tmp_path)
-    texts = text_splitter.split_documents(docs)
+def add_documents_to_vectorstore(docs, persist_directory=VECTORSTORE_DIR):
+    embeddings = get_embeddings()
+    texts = [doc.page_content for doc in docs]
 
-    # ✅ Store original filename in metadata (for UI display)
-    for doc in texts:
-        doc.metadata["source"] = filename
+    print(f"➡️ Getting embeddings for {len(texts)} chunks...")
+    try:
+        embedding_vectors = embeddings.embed_documents(texts)
+        print(f"✅ Got {len(embedding_vectors)} embeddings.")
+        if not embedding_vectors or len(embedding_vectors) != len(texts):
+            raise ValueError("Mismatch in embedding count or failed embeddings.")
+    except Exception as e:
+        print("❌ Embedding failed:", e)
+        raise
 
-    # ✅ Save to Chroma vectorstore
-    if os.path.exists(VECTORSTORE_DIR):
-        vectorstore = Chroma(persist_directory=VECTORSTORE_DIR, embedding_function=embeddings)
-        vectorstore.add_documents(texts)
-    else:
-        vectorstore = Chroma.from_documents(texts, embeddings, persist_directory=VECTORSTORE_DIR)
+    print("📦 Building Chroma vectorstore...")
+    vectorstore = Chroma.from_documents(docs, embeddings, persist_directory=persist_directory)
+    #vectorstore.persist()
+    print("✅ Vectorstore created and saved.")
+    return vectorstore
 
-    vectorstore.persist()
-
-# === Load existing vectorstore from disk ===
-def load_existing_vectorstore():
-    if not os.path.exists(VECTORSTORE_DIR):
+def load_existing_vectorstore(persist_directory=VECTORSTORE_DIR):
+    if not os.path.exists(persist_directory):
         return None
-    return Chroma(persist_directory=VECTORSTORE_DIR, embedding_function=embeddings)
+    embeddings = get_embeddings()
+    return Chroma(persist_directory=persist_directory, embedding_function=embeddings)
 
-# === Ask a question using RAG ===
-def ask_with_context(query: str) -> str:
-    vectorstore = load_existing_vectorstore()
-    if vectorstore is None:
-        return "⚠️ No documents found. Please upload a document first."
-
-    retriever = vectorstore.as_retriever()
-    qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
-    return qa_chain.run(query)
+def create_qa_chain(vectorstore):
+    llm = ChatOpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=OPENROUTER_API_KEY,
+        model=LLM_MODEL,
+        temperature=0
+    )
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+    return RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
